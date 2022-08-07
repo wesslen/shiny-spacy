@@ -1,66 +1,77 @@
-from shiny import App, reactive, render, ui
-import spacy
+"""
+Example of a Streamlit app for an interactive Prodigy dataset viewer that also lets you
+run simple training experiments for NER and text classification.
+Requires the Prodigy annotation tool to be installed: https://prodi.gy
+"""
+import imp
+from shiny import App, reactive, ui, render
+from prodigy.components.db import connect
+from prodigy import serve
+#from prodigy.models.ner import EntityRecognizer, merge_spans, guess_batch_size
+#from prodigy.models.textcat import TextClassifier
+import pandas as pd
+from spacy.tokens import Doc
 from spacy import displacy
+from spacy.util import filter_spans, minibatch
 
-SPACY_MODEL_NAMES = ["en_core_web_sm", "de_core_news_sm", "es_core_news_sm"]
-DEFAULT_TEXT = "Tim Cook is the CEO of Apple."
+SPACY_MODEL_NAMES = ["en_core_web_sm"]
+EXC_FIELDS = ["meta", "priority", "score"]
 HTML_WRAPPER = """<div style="overflow-x: auto; border: 1px solid #e6e9ef; border-radius: 0.25rem; padding: 1rem; margin-bottom: 2.5rem">{}</div>"""
+COLOR_ACCEPT = "#93eaa1"
+COLOR_REJECT = "#ff8f8e"
 
-def load_model(name):
-    return spacy.load(name)
 
-def process_text(model_name, text):
-    nlp = load_model(model_name)
-    return nlp(text), nlp
+def guess_dataset_type(first_eg):
+    if "image" in first_eg:
+        return "image"
+    if "arc" in first_eg:
+        return "dep"
+    if "options" in first_eg or "label" in first_eg:
+        return "textcat"
+    if "spans" in first_eg:
+        return "ner"
+    return "other"
 
-def get_parser(doc, nlp):
-    options = {
-        "collapse_punct": True,
-        "collapse_phrases": True,
-        "compact": True,
-    }
-    docs = [span.as_doc() for span in doc.sents] if True else [doc]
-    for sent in docs:
-        html = displacy.render(sent, options=options)
-        html = html.replace("\n\n", "\n")
-        html = HTML_WRAPPER.format(html)
-    return html
 
-def get_ner(doc, nlp):
-    labels = nlp.get_pipe("ner").labels
-    html = displacy.render(doc, style="ent", options={"ents": labels})
-    html = html.replace("\n", " ")
-    html = HTML_WRAPPER.format(html)
-    return html
+def get_answer_counts(examples):
+    result = {"accept": 0, "reject": 0, "ignore": 0}
+    for eg in examples:
+        answer = eg.get("answer")
+        if answer:
+            result[answer] += 1
+    return result
 
-def get_data(doc, nlp):
-    labels = nlp.get_pipe("ner").labels
-    attrs = ["text", "label_", "start", "end", "start_char", "end_char"]
-    data = [
-        [str(getattr(ent, attr)) for attr in attrs]
-        for ent in doc.ents
-        if ent.label_ in labels
-    ]
-    return data
+
+def format_label(label, answer="accept"):
+    # Hack to use different colors for the label (by adding zero-width space)
+    return f"{label}\u200B" if answer == "reject" else label
+
+
+def summary(examples):
+    return get_answer_counts(examples)
+
+
+db = connect()
+
 
 app_ui = ui.page_fluid(
     ui.tags.style(),
-    ui.h2("Interactive Python Shiny spaCy visualizer"),
+    ui.h2("Prodigy Data Explorer: Shiny Python"),
     ui.markdown(
     """
-Process text with [spaCy](https://spacy.io) models and visualize named entities,
-dependencies and more. Uses spaCy's built-in
-[displaCy](http://spacy.io/usage/visualizers) visualizer under the hood.
-"""
+    Example of a Python Shiny app for an interactive Prodigy dataset viewer.
+    Requires the Prodigy annotation tool to be installed: https://prodi.gy
+    """
     ),
     ui.layout_sidebar(
         ui.panel_sidebar(    
-            ui.input_select(id = "spacy_model", label = "Model name", choices = SPACY_MODEL_NAMES),
-            ui.input_text_area(id = "text", label = "Text to analyze", value = DEFAULT_TEXT),
-            ui.input_action_button("run", "Run doc!"),
+            ui.input_select(id = "dataset", label = "Choose dataset", choices = db.datasets),
+            ui.input_action_button("view", "View dataset!"),
+            ui.input_action_button("delete", "Delete dataset!"),
         ),
         ui.panel_main(
             ui.output_ui("result", placeholder=True),
+            ui.output_ui("delete", placeholder=True),
         ),
     )
 )
@@ -69,13 +80,17 @@ dependencies and more. Uses spaCy's built-in
 def server(input, output, session):
     @output
     @render.text
-    @reactive.event(input.run) # Take a dependency on the button
+    @reactive.event(input.view) # Take a dependency on the button
     async def result():
-        doc, nlp = process_text(input.spacy_model(), input.text())
-        if "parser" in nlp.pipe_names:
-            html_parser = get_parser(doc, nlp)
-        if "ner" in nlp.pipe_names:
-            html_ner = get_ner(doc, nlp)
-        return html_parser + html_ner
+        examples = db.get_dataset(input.dataset())
+        count = len(examples)
+        return f"The dataset {input.dataset()} has {count} records.", examples[0]
+
+    @output
+    @render.text
+    @reactive.event(input.delete) # Take a dependency on the button
+    async def delete():
+        db.drop_dataset(input.dataset())
+        return f"Deleted the {input.dataset()} dataset!"
 
 app = App(app_ui, server)
