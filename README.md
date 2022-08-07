@@ -1,8 +1,6 @@
 # Getting Started
 
-![](app.png)
-
-Demo: <https://ryanwesslen.shinyapps.io/spacy-shiny/>
+Python Shiny app for handling Prodigy datasets.
 
 ## Installation instructions
 
@@ -20,6 +18,17 @@ pip install --upgrade pip wheel
 pip install -r requirements.txt
 ```
 
+## Developer
+
+Requirements for development are included in the `requirements-dev.txt` file. This includes requirements for building and serving the documentation.
+
+There is also a `requirements-prodigy.txt` file, _not included in this repo_, for installing Prodigy. The file is only:
+
+```txt
+--extra-index-url https://XXXX-XXXX-XXXX-XXXX@download.prodi.gy/index 
+prodigy>=1.11.0,<2.0.0
+```
+
 ## Run shiny project
 
 Run the python shiny app.
@@ -27,13 +36,3 @@ Run the python shiny app.
 ```bash
 shiny run --reload 
 ```
-
-## Deploy to shinyapps.io
-
-First install `requirements-dev.txt`.
-
-```bash
-pip install -r requirements-dev.txt
-```
-
-Then follow [these instructions to authenticate](https://docs.rstudio.com/shinyapps.io/getting-started.html#working-with-shiny-for-python).
